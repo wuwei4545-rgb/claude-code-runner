@@ -69,6 +69,7 @@
 		"@types/node": "^24.10.9",
 		"@types/tar-stream": "^3.1.4",
 		"@types/ws": "^8.18.1",
+		"claude-code-runner": "latest",
 		"eslint": "^9.39.2",
 		"lint-staged": "^16.2.7",
 		"rimraf": "^6.1.2",

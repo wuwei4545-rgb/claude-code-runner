@@ -1,0 +1,97 @@
+diff --git a/.gitignore b/.gitignore
+index 1234567..abcdefg 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -30,6 +30,9 @@ dist/
+ # IDE
+ .vscode/
+ .idea/
+ 
++# Temporary container files
++.claude-runner-tmp/
++
+ # Misc
+ .DS_Store
+ *.log
+
+diff --git a/src/container.ts b/src/container.ts
+index original..fixed 100644
+--- a/src/container.ts
++++ b/src/container.ts
+@@ -500,6 +500,12 @@ export class ContainerManager {
+             };
+         
+         try {
++            // Create temporary directory early (relative path approach)
++            const tempDirPath = path.join(workDir, '.claude-runner-tmp');
++            if (!fs.existsSync(tempDirPath)) {
++                fs.mkdirSync(tempDirPath, { recursive: true });
++            }
++            
+             // Get list of git-tracked files (including uncommitted changes)
+             const trackedFiles = execSync('git ls-files', {
+                 cwd: workDir,
+@@ -520,7 +526,9 @@ export class ContainerManager {
+             const allFiles = [...trackedFiles, ...untrackedFiles];
+             console.log(chalk.blue(`• Copying ${allFiles.length} files...`));
+ 
+-            const tarFile = `/tmp/claude-runner-${Date.now()}.tar`;
++            // Use relative path for git/tar commands to avoid Windows path issues
++            const tarFileRel = `.claude-runner-tmp/claude-runner-${Date.now()}.tar`;
++            const tarFile = path.join(workDir, tarFileRel);
+ 
+             // Check if the repository has any commits (HEAD exists)
+             let hasCommits = false;
+@@ -532,20 +540,22 @@ export class ContainerManager {
+             } catch {
+                 hasCommits = false;
+             }
+ 
+             // Create archive of tracked files
+             if (hasCommits && trackedFiles.length > 0) {
+-                execSync(`git archive --format=tar -o "${tarFile}" HEAD`, {
++                execSync(`git archive --format=tar -o "${tarFileRel}" HEAD`, {
+                     cwd: workDir,
+                     stdio: 'pipe',
+                 });
+             } else if (trackedFiles.length > 0) {
+-                const fileListPath = `/tmp/claude-runner-tracked-${Date.now()}.txt`;
++                const fileListPath = path.join(tempDirPath, `claude-runner-tracked-${Date.now()}.txt`);
+                 fs.writeFileSync(fileListPath, trackedFiles.join('\n'));
+-                execSync(`tar -cf "${tarFile}" --files-from="${fileListPath}"`, {
++                execSync(`tar -cf "${tarFileRel}" --files-from="${path.basename(fileListPath)}"`, {
+                     cwd: workDir,
+                     stdio: 'pipe',
+                 });
+@@ -553,7 +563,7 @@ export class ContainerManager {
+             } else {
+-                execSync(`tar -cf "${tarFile}" -T /dev/null`, {
++                execSync(`tar -cf "${tarFileRel}" -T /dev/null`, {
+                     cwd: workDir,
+                     stdio: 'pipe',
+                 });
+@@ -561,10 +571,10 @@ export class ContainerManager {
+ 
+             if (untrackedFiles.length > 0) {
+-                const fileListPath = `/tmp/claude-runner-files-${Date.now()}.txt`;
++                const fileListPath = path.join(tempDirPath, `claude-runner-files-${Date.now()}.txt`);
+                 fs.writeFileSync(fileListPath, untrackedFiles.join('\n'));
+-                execSync(`tar -rf "${tarFile}" --files-from="${fileListPath}"`, {
++                execSync(`tar -rf "${tarFileRel}" --files-from="${path.basename(fileListPath)}"`, {
+                     cwd: workDir,
+                     stdio: 'pipe',
+                 });
+@@ -600,8 +610,11 @@ export class ContainerManager {
+ 
+             // Also copy .git directory to preserve git history
+             console.log(chalk.blue('• Copying git history...'));
+-            const gitTarFile = `/tmp/claude-runner-git-${Date.now()}.tar`;
++            const gitTarFileRel = `.claude-runner-tmp/claude-runner-git-${Date.now()}.tar`;
++            const gitTarFile = path.join(workDir, gitTarFileRel);
+ 
+             const tarFlags = getTarFlags();
+             const additionalFlags = process.platform === 'darwin' ? '--no-xattrs --no-fflags' : '';
+             const combinedFlags = `${tarFlags} ${additionalFlags}`.trim();
+-            execSync(`tar -cf "${gitTarFile}" --exclude="._*" --exclude=".DS_Store" ${combinedFlags} .git`, {
++            execSync(`tar -cf "${gitTarFileRel}" --exclude="._*" --exclude=".DS_Store" ${combinedFlags} .git`, {
+                 cwd: workDir,
